@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script>(function(){try{document.documentElement.setAttribute("data-theme", localStorage.getItem("skillcom-theme")||"dark");}catch(e){}})();</script>
+    <title>Skillcom - Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header style="border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h1 style="color: var(--accent-primary);">SKILLCOM</h1>
+                <div style="display:flex; align-items:center; gap:1.25rem;">
+                    <a href="profile.html" style="color: var(--accent-secondary); text-decoration: none;">My Profile</a>
+                    <button class="btn btn-outline btn-small" onclick="logout()">Log out</button>
+                </div>
+            </div>
+            <button type="button" class="hamburger-btn" id="hamburgerBtn" aria-label="Open menu">☰</button>
+        </header>
+
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="Search by skill (e.g. PyTorch) or username...">
+            <button class="btn" id="searchBtn">Search</button>
+        </div>
+
+        <p id="loadingMsg" style="color: var(--accent-secondary); margin-bottom: 1rem;">Running AI compatibility matching...</p>
+
+        <div id="matchContainer" class="match-grid"></div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app-ui.js"></script>
+    <script>
+        const token = requireAuth();
+
+        function ringColor(score) {
+            if (score >= 70) return "var(--success)";
+            if (score >= 40) return "var(--accent-secondary)";
+            return "var(--danger)";
+        }
+
+        function renderResults(results) {
+            const matchContainer = document.getElementById('matchContainer');
+            const loadingMsg = document.getElementById('loadingMsg');
+            loadingMsg.style.display = 'none';
+            matchContainer.innerHTML = "";
+
+            if (!results || results.length === 0) {
+                matchContainer.innerHTML = "<p style='color: var(--text-muted);'>No peers found. Try a different skill or username.</p>";
+                return;
+            }
+
+            results.forEach(peer => {
+                const card = document.createElement('div');
+                card.className = 'card peer-card';
+
+                const avatarHtml = peer.photo_url
+                    ? `<img class="avatar" src="${API_BASE}${peer.photo_url}" alt="${peer.name}">`
+                    : `<div class="avatar-placeholder">🎓</div>`;
+
+                const skillChips = peer.skills_offered.map(s => `<span class="skill-chip">${s}</span>`).join("");
+
+                const c = peer.compatibility;
+                const color = ringColor(c.match_score);
+
+                card.innerHTML = `
+                    <div class="peer-card-header">
+                        ${avatarHtml}
+                        <div style="flex:1;">
+                            <h3 style="margin:0;">${peer.name}</h3>
+                            <p style="color: var(--text-muted); font-size: 0.85rem;">@${peer.username}</p>
+                        </div>
+                        <div class="compat-ring" style="--pct:${c.match_score}; background: conic-gradient(${color} calc(${c.match_score} * 1%), rgba(255,255,255,0.08) 0);" data-label="${c.match_score}%"></div>
+                    </div>
+
+                    <div style="margin-top: 1rem;">${skillChips}</div>
+
+                    <div class="token-row">
+                        <span class="token-pill">✓ ${c.verified_token_count} verified token${c.verified_token_count === 1 ? '' : 's'}</span>
+                        <span>AI trust boost +${c.trust_boost}%</span>
+                    </div>
+
+                    <button class="btn" style="padding: 0.6rem; margin-top: 1rem;">View Profile</button>
+                `;
+
+                card.addEventListener('click', () => {
+                    localStorage.setItem('selectedPeer', JSON.stringify(peer));
+                    window.location.href = "peer-profile.html";
+                });
+
+                matchContainer.appendChild(card);
+            });
+        }
+
+        async function search(query) {
+            const loadingMsg = document.getElementById('loadingMsg');
+            loadingMsg.style.display = 'block';
+            loadingMsg.style.color = "var(--accent-secondary)";
+            loadingMsg.innerText = "Running AI compatibility matching...";
+
+            try {
+                const url = `${API_BASE}/api/users/search?q=${encodeURIComponent(query || "")}`;
+                const res = await fetch(url, { headers: authHeaders() });
+
+                if (res.status === 401) { logout(); return; }
+
+                const data = await res.json();
+                renderResults(data.results);
+            } catch (err) {
+                loadingMsg.innerText = "Error: Cannot connect to the Skillcom server. Is main.py running?";
+                loadingMsg.style.color = "red";
+            }
+        }
+
+        document.getElementById('searchBtn').addEventListener('click', () => {
+            search(document.getElementById('searchInput').value.trim());
+        });
+        document.getElementById('searchInput').addEventListener('keydown', (e) => {
+            if (e.key === "Enter") search(document.getElementById('searchInput').value.trim());
+        });
+
+        // On load, show matches based on the skills the user wants to learn.
+        window.onload = () => search("");
+    </script>
+</body>
+</html>

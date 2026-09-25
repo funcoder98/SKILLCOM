@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script>(function(){try{document.documentElement.setAttribute("data-theme", localStorage.getItem("skillcom-theme")||"dark");}catch(e){}})();</script>
+    <title>Skillcom - My Profile</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Only used to read your wallet address (eth_requestAccounts) so tokens can be
+         minted TO it. No signing or gas required here - the platform mints for you. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <a href="home.html" style="color: var(--text-muted); text-decoration: none;">← Back to Home</a>
+            <button class="btn btn-outline btn-small" onclick="logout()">Log out</button>
+        </div>
+
+        <div class="peer-card-header" style="margin-top: 2rem;">
+            <img class="avatar" id="myAvatarImg" style="display:none; width:72px; height:72px;" alt="My photo">
+            <div class="avatar-placeholder" id="myAvatarPlaceholder" style="width:72px; height:72px; font-size:1.8rem;">🎓</div>
+            <div>
+                <h1 id="displayName">My Profile</h1>
+                <p style="color: var(--accent-secondary); font-family: monospace; margin-top: 0.25rem;" id="displayUsername">@...</p>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 2rem;">
+            <h2 style="margin-bottom: 0.5rem;">On-Chain Wallet</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+                Link a wallet so future reputation tokens are minted to you as real NFTs
+                on-chain, not just recorded in the Skillcom database. Skillcom pays the gas.
+            </p>
+            <p id="walletDisplay" style="font-family: monospace; color: var(--accent-secondary); margin-bottom: 1rem;">Not linked.</p>
+            <button id="connectWalletBtn" class="btn btn-secondary btn-small">Connect Wallet</button>
+            <p class="error-text" id="walletError"></p>
+        </div>
+
+        <div class="card" style="margin-top: 1.5rem;">
+            <h2 style="margin-bottom: 0.5rem;">Account Security</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+                Your email is used to verify it's really you if you ever need to reset your password.
+            </p>
+            <label>Email</label>
+            <input type="email" id="emailInput" placeholder="you@example.com">
+            <button id="saveEmailBtn" class="btn btn-secondary btn-small">Save Email</button>
+            <p class="error-text" id="emailError"></p>
+
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+                    Change your password by email — we'll send a reset link to the address above.
+                </p>
+                <button id="changePasswordBtn" class="btn btn-outline btn-small">Change Password</button>
+                <p id="passwordResetMsg" style="color: var(--success); font-size: 0.85rem; margin-top: 0.75rem; display:none;"></p>
+                <p class="error-text" id="passwordResetError"></p>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 1.5rem;">
+            <h2 style="margin-bottom: 1rem;">Skills I Teach</h2>
+            <div id="myOffers"></div>
+            <h2 style="margin: 1.5rem 0 1rem;">Skills I Want to Learn</h2>
+            <div id="myWanted"></div>
+        </div>
+
+        <div class="card" style="margin-top: 1.5rem;">
+            <h2 style="margin-bottom: 1.5rem;">My Reputation Tokens</h2>
+            <div id="tokenList"></div>
+        </div>
+
+        <div class="card" style="margin-top: 1.5rem;">
+            <h2 style="margin-bottom: 1.5rem;">My Sessions</h2>
+            <div id="sessionList"></div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app-ui.js"></script>
+    <script>
+        const token = requireAuth();
+
+        async function loadProfile() {
+            const res = await fetch(`${API_BASE}/api/me`, { headers: authHeaders() });
+            if (res.status === 401) { logout(); return; }
+            const user = await res.json();
+            localStorage.setItem('currentUser', JSON.stringify(user));
+
+            document.getElementById('displayName').innerText = user.name;
+            document.getElementById('displayUsername').innerText = "@" + user.username;
+
+            if (user.photo_url) {
+                const img = document.getElementById('myAvatarImg');
+                img.src = `${API_BASE}${user.photo_url}`;
+                img.style.display = 'block';
+                document.getElementById('myAvatarPlaceholder').style.display = 'none';
+            }
+
+            document.getElementById('myOffers').innerHTML =
+                user.skills_offered.map(s => `<span class="skill-chip">${s}</span>`).join("") || "<p style='color:var(--text-muted);'>None yet.</p>";
+            document.getElementById('myWanted').innerHTML =
+                user.skills_wanted.map(s => `<span class="skill-chip">${s}</span>`).join("") || "<p style='color:var(--text-muted);'>None yet.</p>";
+
+            const tokens = user.reputation_tokens || [];
+            document.getElementById('tokenList').innerHTML = tokens.length
+                ? tokens.map(t => `
+                    <div style="background-color: var(--bg-base); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border-color);">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>${t.skill}</span>
+                            <span style="color: var(--accent-primary); font-family: monospace;">${t.id}</span>
+                        </div>
+                        ${t.on_chain
+                            ? `<a href="${t.explorer_url}" target="_blank" rel="noopener" style="color: var(--success); font-size: 0.8rem;">⛓ Minted on-chain — view transaction</a>`
+                            : `<span style="color: var(--text-muted); font-size: 0.8rem;">Recorded off-chain${t.mint_error ? ' (on-chain mint failed: ' + t.mint_error + ')' : ' — link a wallet to mint future tokens on-chain'}</span>`
+                        }
+                    </div>
+                `).join("")
+                : "<p style='color:var(--text-muted);'>Complete a barter session to mint your first token.</p>";
+
+            document.getElementById('emailInput').value = user.email || "";
+
+            const walletDisplay = document.getElementById('walletDisplay');
+            if (user.wallet_address) {
+                walletDisplay.innerText = user.wallet_address.slice(0, 6) + "..." + user.wallet_address.slice(-4);
+                document.getElementById('connectWalletBtn').innerText = "Reconnect / Change Wallet";
+            } else {
+                walletDisplay.innerText = "Not linked — reputation tokens will stay off-chain until you connect one.";
+            }
+        }
+
+        async function connectWallet() {
+            const walletError = document.getElementById('walletError');
+            walletError.innerText = "";
+
+            if (typeof window.ethereum === 'undefined') {
+                walletError.innerText = "No wallet extension detected. Install MetaMask to link a wallet.";
+                return;
+            }
+
+            try {
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                const signer = await provider.getSigner();
+                const address = await signer.getAddress();
+
+                const res = await fetch(`${API_BASE}/api/me/wallet`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", ...authHeaders() },
+                    body: JSON.stringify({ wallet_address: address })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    walletError.innerText = data.detail || "Could not link wallet.";
+                    return;
+                }
+
+                loadProfile();
+            } catch (err) {
+                walletError.innerText = "Wallet connection was refused or failed.";
+            }
+        }
+
+        document.getElementById('connectWalletBtn').addEventListener('click', connectWallet);
+
+        async function saveEmail() {
+            const emailError = document.getElementById('emailError');
+            emailError.innerText = "";
+            const email = document.getElementById('emailInput').value.trim();
+
+            try {
+                const res = await fetch(`${API_BASE}/api/me/email`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", ...authHeaders() },
+                    body: JSON.stringify({ email })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    emailError.innerText = data.detail || "Could not save that email.";
+                    return;
+                }
+                loadProfile();
+            } catch (err) {
+                emailError.innerText = "Cannot reach the Skillcom server.";
+            }
+        }
+        document.getElementById('saveEmailBtn').addEventListener('click', saveEmail);
+
+        async function changePassword() {
+            const passwordResetError = document.getElementById('passwordResetError');
+            const passwordResetMsg = document.getElementById('passwordResetMsg');
+            passwordResetError.innerText = "";
+            passwordResetMsg.style.display = "none";
+
+            try {
+                const res = await fetch(`${API_BASE}/api/me/password-reset/request`, {
+                    method: "POST",
+                    headers: authHeaders()
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    passwordResetError.innerText = data.detail || "Could not send a reset link.";
+                    return;
+                }
+                passwordResetMsg.innerText = data.message;
+                passwordResetMsg.style.display = "block";
+            } catch (err) {
+                passwordResetError.innerText = "Cannot reach the Skillcom server.";
+            }
+        }
+        document.getElementById('changePasswordBtn').addEventListener('click', changePassword);
+
+        async function loadSessions() {
+            const res = await fetch(`${API_BASE}/api/sessions`, { headers: authHeaders() });
+            if (!res.ok) return;
+            const data = await res.json();
+
+            document.getElementById('sessionList').innerHTML = data.sessions.length
+                ? data.sessions.map(s => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);">
+                        <div>
+                            <strong>${s.topic}</strong>
+                            <p style="color: var(--text-muted); font-size: 0.85rem;">with ${s.peer_name} · ${s.session_time.replace('T',' ')}</p>
+                        </div>
+                        <span class="status-badge ${s.status === 'CONFIRMED' ? 'confirmed' : ''}">${s.status}</span>
+                    </div>
+                `).join("")
+                : "<p style='color:var(--text-muted);'>No sessions yet — head to the dashboard to find a peer.</p>";
+        }
+
+        window.onload = () => { loadProfile(); loadSessions(); };
+    </script>
+</body>
+</html>

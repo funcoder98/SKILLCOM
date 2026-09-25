@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script>(function(){try{document.documentElement.setAttribute("data-theme", localStorage.getItem("skillcom-theme")||"dark");}catch(e){}})();</script>
+    <title>Skillcom - Create Profile</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container" style="display: flex; justify-content: center; align-items: center; min-height: 100vh;">
+        <form id="profileForm" class="card" style="width: 100%; max-width: 520px;" enctype="multipart/form-data">
+            <h2 style="margin-bottom: 0.5rem;">Create Your Peer Profile</h2>
+            <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Set a password and pick your exact skills so the AI matcher has no ambiguity to work with.</p>
+
+            <label>Full Name</label>
+            <input type="text" id="name" required placeholder="e.g., Jane Doe">
+
+            <label>Username</label>
+            <input type="text" id="username" required placeholder="e.g., jane_doe" pattern="[a-zA-Z0-9_\.]+">
+
+            <label>Email</label>
+            <input type="email" id="email" required placeholder="e.g., jane@example.com">
+            <p class="helper-text">Used to verify your identity if you ever need to reset your password.</p>
+
+            <label>Password</label>
+            <input type="password" id="password" required minlength="6" placeholder="At least 6 characters">
+
+            <label>Profile Photo</label>
+            <input type="file" id="photo" accept="image/*">
+            <p class="helper-text">A photo of you (e.g. from a study session) helps peers recognize you in the feed.</p>
+
+            <label>Skills You Can Teach</label>
+            <select id="skillsOffered" multiple></select>
+            <p class="helper-text">Hold Ctrl / Cmd to select multiple exact skill titles.</p>
+
+            <label>Skills You Want To Learn</label>
+            <select id="skillsWanted" multiple></select>
+            <p class="helper-text">These drive your AI compatibility matches on the home feed.</p>
+
+            <p class="error-text" id="errorMsg"></p>
+
+            <button type="submit" class="btn">Save & Initialize AI</button>
+        </form>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app-ui.js"></script>
+    <script>
+        async function loadSkillOptions() {
+            try {
+                const res = await fetch(`${API_BASE}/api/skills`);
+                const data = await res.json();
+                const offeredSelect = document.getElementById('skillsOffered');
+                const wantedSelect = document.getElementById('skillsWanted');
+
+                data.skills.forEach(skill => {
+                    offeredSelect.appendChild(new Option(skill, skill));
+                    wantedSelect.appendChild(new Option(skill, skill));
+                });
+            } catch (err) {
+                document.getElementById('errorMsg').innerText = "Cannot reach the Skillcom server. Is main.py running?";
+            }
+        }
+        window.onload = loadSkillOptions;
+
+        document.getElementById('profileForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.innerText = "";
+
+            const offered = Array.from(document.getElementById('skillsOffered').selectedOptions).map(o => o.value);
+            const wanted = Array.from(document.getElementById('skillsWanted').selectedOptions).map(o => o.value);
+
+            if (offered.length === 0 || wanted.length === 0) {
+                errorMsg.innerText = "Pick at least one skill you can teach and one you want to learn.";
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("name", document.getElementById('name').value);
+            formData.append("username", document.getElementById('username').value);
+            formData.append("email", document.getElementById('email').value);
+            formData.append("password", document.getElementById('password').value);
+            formData.append("skills_offered", offered.join(","));
+            formData.append("skills_wanted", wanted.join(","));
+
+            const photoFile = document.getElementById('photo').files[0];
+            if (photoFile) formData.append("photo", photoFile);
+
+            try {
+                const res = await fetch(`${API_BASE}/api/register`, {
+                    method: "POST",
+                    body: formData
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    errorMsg.innerText = data.detail || "Registration failed.";
+                    return;
+                }
+
+                // Registration succeeded -> send them to log in with their new credentials.
+                window.location.href = "login.html";
+            } catch (err) {
+                errorMsg.innerText = "Cannot reach the Skillcom server. Is main.py running?";
+            }
+        });
+    </script>
+</body>
+</html>

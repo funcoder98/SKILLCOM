@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script>(function(){try{document.documentElement.setAttribute("data-theme", localStorage.getItem("skillcom-theme")||"dark");}catch(e){}})();</script>
+    <title>Skillcom - Schedule Barter</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container" style="display: flex; justify-content: center; align-items: center; min-height: 100vh;">
+        <form id="bookingForm" class="card" style="width: 100%; max-width: 500px;">
+            <h2 style="margin-bottom: 0.5rem;">Initiate Barter Request</h2>
+            <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Define exchange terms with your peer.</p>
+
+            <label>Peer Selected</label>
+            <input type="text" id="targetPeer" readonly style="opacity: 0.7; cursor: not-allowed;">
+
+            <label>Your Skill Offer</label>
+            <select id="myOffer" required></select>
+            <p class="helper-text">Only skills you've selected as ones you teach — set these on your profile.</p>
+
+            <label>Requested Learning Topic</label>
+            <select id="requestedTopic" required></select>
+            <p class="helper-text">Only skills this peer has listed as ones they teach.</p>
+
+            <label>Proposed Date & Time</label>
+            <input type="datetime-local" id="sessionTime" required style="color-scheme: dark;">
+
+            <p class="error-text" id="errorMsg"></p>
+
+            <button type="submit" class="btn btn-secondary">Send Barter Proposal</button>
+        </form>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app-ui.js"></script>
+    <script>
+        const token = requireAuth();
+        const selectedPeer = JSON.parse(localStorage.getItem('selectedPeer') || '{}');
+        const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+
+        function errorMsgEl() { return document.getElementById('errorMsg'); }
+        function disableSubmit() { document.querySelector('#bookingForm button[type="submit"]').disabled = true; }
+
+        function populateSkillDropdowns() {
+            const offerSelect = document.getElementById('myOffer');
+            const topicSelect = document.getElementById('requestedTopic');
+
+            const myTeachable = currentUser.skills_offered || [];
+            const peerTeachable = selectedPeer.skills_offered || [];
+
+            if (myTeachable.length === 0) {
+                errorMsgEl().innerText = "You haven't selected any skills you can teach on your profile yet — add at least one before proposing an exchange.";
+                disableSubmit();
+                return;
+            }
+            if (peerTeachable.length === 0) {
+                errorMsgEl().innerText = `${selectedPeer.name} hasn't listed any skills they can teach yet, so a session can't be proposed.`;
+                disableSubmit();
+                return;
+            }
+
+            myTeachable.forEach(skill => offerSelect.appendChild(new Option(skill, skill)));
+            peerTeachable.forEach(skill => topicSelect.appendChild(new Option(skill, skill)));
+        }
+
+        window.onload = () => {
+            if (!selectedPeer.id) { window.location.href = "home.html"; return; }
+            document.getElementById('targetPeer').value = selectedPeer.name;
+            populateSkillDropdowns();
+        };
+
+        document.getElementById('bookingForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.innerText = "";
+
+            const payload = {
+                to_user: selectedPeer.id,
+                my_offer: document.getElementById('myOffer').value,
+                topic: document.getElementById('requestedTopic').value,
+                session_time: document.getElementById('sessionTime').value
+            };
+
+            try {
+                const res = await fetch(`${API_BASE}/api/sessions/propose`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", ...authHeaders() },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    errorMsg.innerText = data.detail || "Could not create the session proposal.";
+                    return;
+                }
+
+                window.location.href = `session.html?id=${data.session_id}`;
+            } catch (err) {
+                errorMsg.innerText = "Cannot reach the Skillcom server. Is main.py running?";
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script>(function(){try{document.documentElement.setAttribute("data-theme", localStorage.getItem("skillcom-theme")||"dark");}catch(e){}})();</script>
+    <title>Skillcom - Meetings</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 2rem;">
+            <a href="home.html" style="color: var(--text-muted); text-decoration: none;">← Back to Dashboard</a>
+            <h1 style="color: var(--accent-primary); font-size: 1.2rem;">MY MEETINGS</h1>
+        </header>
+
+        <div class="meetings-tabs">
+            <button class="meetings-tab active" data-tab="arranged">📅 Arranged</button>
+            <button class="meetings-tab" data-tab="pending">⏳ Pending</button>
+            <button class="meetings-tab" data-tab="occurred">✅ Occurred</button>
+        </div>
+
+        <div id="meetingsList">
+            <p style="color: var(--text-muted);">Loading meetings...</p>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app-ui.js"></script>
+    <script>
+        const token = requireAuth();
+        let meetingsData = { pending: [], arranged: [], occurred: [] };
+        let activeTab = "arranged";
+
+        const TAB_EMPTY_TEXT = {
+            pending: "No pending proposals — waiting on a peer to agree, or propose a new exchange from a peer's profile.",
+            arranged: "No arranged meetings yet — once both peers agree to a session, it'll show up here until it happens.",
+            occurred: "No meetings have occurred yet.",
+        };
+
+        function renderTab() {
+            const list = document.getElementById('meetingsList');
+            const items = meetingsData[activeTab] || [];
+
+            if (items.length === 0) {
+                list.innerHTML = `<p style="color: var(--text-muted);">${TAB_EMPTY_TEXT[activeTab]}</p>`;
+                return;
+            }
+
+            list.innerHTML = items.map(m => `
+                <div class="meeting-item">
+                    <div>
+                        <strong>${m.topic}</strong>
+                        <div class="meeting-meta">
+                            with ${m.peer ? m.peer.name : 'Unknown'} · offering ${m.my_offer} · ${m.session_time.replace('T', ' ')}
+                        </div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                        <span class="status-badge ${m.status === 'CONFIRMED' ? 'confirmed' : ''}">${m.status}</span>
+                        <button class="btn btn-secondary btn-small" onclick="window.location.href='session.html?id=${m.session_id}'">Open</button>
+                    </div>
+                </div>
+            `).join("");
+        }
+
+        document.querySelectorAll('.meetings-tab').forEach(tabBtn => {
+            tabBtn.addEventListener('click', () => {
+                document.querySelectorAll('.meetings-tab').forEach(b => b.classList.remove('active'));
+                tabBtn.classList.add('active');
+                activeTab = tabBtn.dataset.tab;
+                renderTab();
+            });
+        });
+
+        async function loadMeetings() {
+            try {
+                const res = await fetch(`${API_BASE}/api/meetings`, { headers: authHeaders() });
+                if (res.status === 401) { logout(); return; }
+                meetingsData = await res.json();
+                renderTab();
+            } catch (err) {
+                document.getElementById('meetingsList').innerHTML =
+                    `<p class="error-text">Cannot reach the Skillcom server. Is main.py running?</p>`;
+            }
+        }
+
+        window.onload = loadMeetings;
+    </script>
+</body>
+</html>

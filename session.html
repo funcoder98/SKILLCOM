@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script>(function(){try{document.documentElement.setAttribute("data-theme", localStorage.getItem("skillcom-theme")||"dark");}catch(e){}})();</script>
+    <title>Skillcom - Barter Session</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 2rem;">
+            <h1 style="color: var(--accent-primary);">BARTER SESSION</h1>
+            <span id="sessionStatus" class="status-badge">STATUS: PENDING</span>
+        </header>
+
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <h2 id="sessionTopic">Topic: -</h2>
+            <p style="color: var(--text-muted); margin-top: 0.5rem;" id="sessionDetails">Peer: -</p>
+            <p style="color: var(--text-muted); margin-top: 0.25rem;" id="sessionTimeDisplay"></p>
+        </div>
+
+        <div class="card" style="border-color: var(--accent-primary);">
+            <h3>Confirm the Exchange</h3>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0.5rem 0 1.5rem;" id="agreementHelp">
+                Both peers must agree before the session is locked in and reputation tokens are minted.
+            </p>
+
+            <button id="agreeBtn" class="btn">Agree to This Session</button>
+            <p id="statusText" style="margin-top: 1rem; font-family: monospace; font-size: 0.85rem; color: var(--accent-secondary);"></p>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="confirmModal">
+        <div class="modal-box">
+            <div class="check-icon">✅</div>
+            <h2 style="margin-bottom: 0.5rem;">Appointment Created!</h2>
+            <p style="color: var(--text-muted); margin-bottom: 1rem;">Both peers have agreed. A reputation token was minted for each of you.</p>
+            <p id="mintNote" style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;"></p>
+            <button class="btn btn-secondary" id="downloadReceiptBtn">Download Receipt</button>
+            <button class="btn btn-outline" id="backHomeBtn">Back to Dashboard</button>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app-ui.js"></script>
+    <script>
+        const token = requireAuth();
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionId = urlParams.get('id') || JSON.parse(localStorage.getItem('activeBooking') || '{}').id;
+        let pollTimer = null;
+        let modalShown = false;
+
+        function setStatusBadge(status) {
+            const badge = document.getElementById('sessionStatus');
+            badge.innerText = "STATUS: " + status;
+            badge.classList.toggle('confirmed', status === 'CONFIRMED');
+        }
+
+        async function loadSession() {
+            try {
+                const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { headers: authHeaders() });
+                if (res.status === 401) { logout(); return; }
+                if (!res.ok) {
+                    document.getElementById('statusText').innerText = "Session not found.";
+                    return;
+                }
+                const s = await res.json();
+
+                document.getElementById('sessionTopic').innerText = "Topic: " + s.topic;
+                document.getElementById('sessionDetails').innerText =
+                    `Peer Partner: ${s.peer ? s.peer.name : '-'} | Exchange: ${s.my_offer}`;
+                document.getElementById('sessionTimeDisplay').innerText = "Proposed time: " + s.session_time.replace('T', ' ');
+
+                setStatusBadge(s.status);
+
+                const agreeBtn = document.getElementById('agreeBtn');
+                if (s.status === 'CONFIRMED') {
+                    agreeBtn.disabled = true;
+                    agreeBtn.innerText = "Session Confirmed ✓";
+                    document.getElementById('agreementHelp').innerText = "Both peers have agreed — this session is locked in.";
+                    if (!modalShown) {
+                        modalShown = true;
+                        const myToken = (s.minted_tokens || []).find(t => t.user_id === JSON.parse(localStorage.getItem('currentUser') || '{}').id);
+                        const mintNote = document.getElementById('mintNote');
+                        if (myToken && myToken.on_chain) {
+                            mintNote.innerHTML = `⛓ Your token was minted on-chain. <a href="${myToken.explorer_url}" target="_blank" rel="noopener" style="color: var(--accent-secondary);">View transaction</a>`;
+                        } else if (myToken) {
+                            mintNote.innerText = "Your token was recorded off-chain. Link a wallet on your Profile page to mint future tokens on-chain.";
+                        }
+                        document.getElementById('confirmModal').classList.remove('hidden');
+                        if (pollTimer) clearInterval(pollTimer);
+                    }
+                } else if (s.i_have_agreed) {
+                    agreeBtn.disabled = true;
+                    agreeBtn.innerText = "Waiting on your peer to agree...";
+                } else {
+                    agreeBtn.disabled = false;
+                    agreeBtn.innerText = "Agree to This Session";
+                }
+            } catch (err) {
+                document.getElementById('statusText').innerText = "Cannot reach the Skillcom server. Is main.py running?";
+            }
+        }
+
+        document.getElementById('agreeBtn').addEventListener('click', async () => {
+            const statusText = document.getElementById('statusText');
+            statusText.innerText = "Registering your agreement with the backend...";
+            try {
+                const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/agree`, {
+                    method: "POST",
+                    headers: authHeaders()
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    statusText.innerText = data.detail || "Could not register agreement.";
+                    return;
+                }
+                statusText.innerText = "Agreement recorded.";
+                loadSession();
+            } catch (err) {
+                statusText.innerText = "Cannot reach the Skillcom server.";
+            }
+        });
+
+        document.getElementById('downloadReceiptBtn').addEventListener('click', async () => {
+            const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/receipt`, { headers: authHeaders() });
+            if (!res.ok) return;
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `skillcom-receipt-${sessionId}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        });
+
+        document.getElementById('backHomeBtn').addEventListener('click', () => {
+            window.location.href = "home.html";
+        });
+
+        window.onload = () => {
+            if (!sessionId) { window.location.href = "home.html"; return; }
+            loadSession();
+            pollTimer = setInterval(loadSession, 3000);
+        };
+        window.onbeforeunload = () => { if (pollTimer) clearInterval(pollTimer); };
+    </script>
+</body>
+</html>

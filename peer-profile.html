@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script>(function(){try{document.documentElement.setAttribute("data-theme", localStorage.getItem("skillcom-theme")||"dark");}catch(e){}})();</script>
+    <title>Skillcom - Peer Profile</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 2rem;">
+            <a href="home.html" style="color: var(--text-muted); text-decoration: none;">← Back to Dashboard</a>
+            <h1 style="color: var(--accent-primary); font-size: 1.2rem;">SKILLCOM PEER</h1>
+        </header>
+
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="peer-card-header">
+                <img class="avatar" id="peerAvatarImg" style="display:none;" alt="Peer photo">
+                <div class="avatar-placeholder" id="peerAvatarPlaceholder">🎓</div>
+                <div style="flex:1;">
+                    <h2 id="peerName">Loading Peer...</h2>
+                    <p style="color: var(--accent-secondary); font-family: monospace; font-size: 0.85rem;" id="peerUsername">@...</p>
+                </div>
+                <div class="compat-ring" id="compatRing" data-label="--"></div>
+            </div>
+
+            <h3 style="margin: 1.5rem 0 0.5rem; font-size: 1rem;">Skills Offered (Can Teach)</h3>
+            <div id="peerOffers">-</div>
+
+            <h3 style="margin: 1.5rem 0 0.5rem; font-size: 1rem;">Verified On-Chain Reputation Tokens</h3>
+            <div id="peerBadges" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">-</div>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-bottom: 1rem;">Chat with <span id="chatPeerName">peer</span></h3>
+            <div class="chat-window" id="chatWindow"></div>
+            <div class="chat-input-row">
+                <input type="text" id="chatInput" placeholder="Say hi, agree on details, then hit Exchange...">
+                <button class="btn btn-secondary" id="sendMsgBtn">Send</button>
+            </div>
+
+            <button id="exchangeBtn" class="btn">🤝 Exchange — Propose a Barter Session</button>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app-ui.js"></script>
+    <script>
+        const token = requireAuth();
+        let pollTimer = null;
+
+        const selectedPeer = JSON.parse(localStorage.getItem('selectedPeer') || '{}');
+
+        function renderPeer(peer) {
+            document.getElementById('peerName').innerText = peer.name;
+            document.getElementById('peerUsername').innerText = "@" + peer.username;
+            document.getElementById('chatPeerName').innerText = peer.name;
+
+            if (peer.photo_url) {
+                const img = document.getElementById('peerAvatarImg');
+                img.src = `${API_BASE}${peer.photo_url}`;
+                img.style.display = 'block';
+                document.getElementById('peerAvatarPlaceholder').style.display = 'none';
+            }
+
+            document.getElementById('peerOffers').innerHTML = peer.skills_offered
+                .map(s => `<span class="skill-chip">${s}</span>`).join("");
+
+            const tokens = peer.reputation_tokens || [];
+            document.getElementById('peerBadges').innerHTML = tokens.length
+                ? tokens.map(t => `<span class="token-pill">${t.on_chain ? '⛓' : '✓'} ${t.skill} · ${t.id}</span>`).join("")
+                : "<span style='color: var(--text-muted); font-size: 0.85rem;'>No tokens minted yet.</span>";
+
+            if (peer.compatibility) {
+                const c = peer.compatibility;
+                const ring = document.getElementById('compatRing');
+                ring.style.background = `conic-gradient(var(--accent-secondary) calc(${c.match_score} * 1%), rgba(255,255,255,0.08) 0)`;
+                ring.setAttribute('data-label', c.match_score + '%');
+            }
+        }
+
+        async function loadPeer() {
+            if (!selectedPeer.id) { window.location.href = "home.html"; return; }
+            try {
+                const res = await fetch(`${API_BASE}/api/users/${selectedPeer.id}`, { headers: authHeaders() });
+                if (res.status === 401) { logout(); return; }
+                const peer = await res.json();
+                localStorage.setItem('selectedPeer', JSON.stringify(peer));
+                renderPeer(peer);
+            } catch (err) {
+                renderPeer(selectedPeer);
+            }
+        }
+
+        function renderMessages(messages) {
+            const chatWindow = document.getElementById('chatWindow');
+            const wasAtBottom = chatWindow.scrollTop + chatWindow.clientHeight >= chatWindow.scrollHeight - 10;
+
+            chatWindow.innerHTML = messages.map(m => `
+                <div class="chat-bubble ${m.is_mine ? 'mine' : 'theirs'}">${m.text}</div>
+            `).join("") || "<p style='color: var(--text-muted); font-size: 0.85rem;'>No messages yet — say hello!</p>";
+
+            if (wasAtBottom || messages.length <= 1) {
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+            }
+        }
+
+        async function pollMessages() {
+            try {
+                const res = await fetch(`${API_BASE}/api/messages/${selectedPeer.id}`, { headers: authHeaders() });
+                if (res.status === 401) { logout(); return; }
+                const data = await res.json();
+                renderMessages(data.messages);
+            } catch (err) { /* silent - keep chat resilient to transient network hiccups */ }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = "";
+
+            await fetch(`${API_BASE}/api/messages`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...authHeaders() },
+                body: JSON.stringify({ to_user: selectedPeer.id, text })
+            });
+            pollMessages();
+        }
+
+        document.getElementById('sendMsgBtn').addEventListener('click', sendMessage);
+        document.getElementById('chatInput').addEventListener('keydown', (e) => {
+            if (e.key === "Enter") sendMessage();
+        });
+
+        document.getElementById('exchangeBtn').addEventListener('click', () => {
+            window.location.href = "booking.html";
+        });
+
+        window.onload = () => {
+            renderPeer(selectedPeer);
+            loadPeer();
+            pollMessages();
+            pollTimer = setInterval(pollMessages, 3000);
+        };
+        window.onbeforeunload = () => { if (pollTimer) clearInterval(pollTimer); };
+    </script>
+</body>
+</html>
